@@ -1,12 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"crypto/md5"
 	"embed"
 	"fmt"
+	"github.com/alecthomas/chroma/quick"
 	"html/template"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 
@@ -23,36 +24,83 @@ import (
 //go:embed templates/*
 var templates embed.FS
 
-var data = map[string]string{
-	"station1.system.authz": `
+var policyData = map[string]string{
+	"station1/system.authz": `
 package system.authz
 
 default allow := {
-    "allowed": false,
-    "reason": "this OPA only accepts SPIFFE clients"
+	"allowed": false,
+	"reason": "this OPA only accepts authenticated clients"	
 }
-
-# allow := { "allowed": true } {
-#     spiffeID := input.client_certificates[0].URIs[0]
-#     spiffeID.Scheme == "spiffe"
-# }
 `,
-	"station1.reservations.list": `
+	"station1/reservations.list": `
 package reservations.list
 
-default deny := {
-    "deny": false,
+deny[reason] {
+	false
+	reason := "TODO"
+}
+`,
 }
 
-# deny := { "deny": true, "reason": reason } {
-# 	not input.driver
-# 	reason := "driver must be set"
-# }
-# 
-# deny := { "deny": true, "reason": reason } {
-# 	input.driver == ""
-# 	reason := "driver must be not be an empty"
-# }
+var policyNotes = map[string]string{
+	"station1/system.authz": `
+package system.authz
+
+spiffeIDString(spiffeID) = result {
+	result := sprintf("spiffe://%s%s", [spiffeID.Host, spiffeID.Path])
+}
+
+default allow := {
+	"allowed": false,
+	"reason": "this OPA only accepts authenticated clients"
+}
+
+allow := { "allowed": true } {
+	spiffeIDString(input.client_certificates[0].URIs[0])
+}
+
+###########################################################
+
+package system.authz
+
+spiffeIDString(spiffeID) = result {
+	result := sprintf("spiffe://%s%s", [spiffeID.Host, spiffeID.Path])
+}
+
+default allow := {
+	"allowed": false,
+	"reason": "this OPA only accepts authenticated clients"
+}
+
+acl := {
+	"spiffe://example.com/clusters/station1/reservations/foo": [
+		["v0", "data", "reservations", "list", "deny"],
+	],
+}
+
+allow := { "allowed": false, "reason": reason } {
+	spiffeID := spiffeIDString(input.client_certificates[0].URIs[0])
+	not acl[spiffeID]
+	reason := sprintf("client %s is not authorized to access this path %s", [spiffeID, input.path])
+}
+
+allow := { "allowed": true } {
+	spiffeID := spiffeIDString(input.client_certificates[0].URIs[0])
+	acl[spiffeID]
+}
+`,
+	"station1/reservations.list": `
+package reservations.list
+
+deny[reason] {
+	input.driver == ""
+	reason := "driver must be not be a empty"
+}
+deny[reason] {
+	input.train == ""
+	reason := "train must be not be a empty"
+}
 `,
 }
 
@@ -80,7 +128,8 @@ func main() {
 	tlsConfig := tlsconfig.MTLSServerConfig(source, b, tlsconfig.AuthorizeMemberOf(td))
 
 	r := mux.NewRouter()
-	r.Handle("/config", http.HandlerFunc(configShowHandler))
+	r.Handle("/config", http.HandlerFunc(configIndexHandler))
+	r.Handle("/config/{site}/{bundle}", http.HandlerFunc(configShowHandler))
 	r.Handle("/bundles/{site}/{bundle}/bundle.tar.gz", http.HandlerFunc(bundleHandler))
 
 	server := &http.Server{
@@ -105,10 +154,10 @@ func bundleHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key := fmt.Sprintf("%s.%s", site, bundleID)
+	key := fmt.Sprintf("%s/%s", site, bundleID)
 
 	h := md5.New()
-	io.WriteString(h, data[key])
+	io.WriteString(h, policyData[key])
 	hash := fmt.Sprintf("%x", h.Sum(nil))
 
 	if r.Header.Get("If-None-Match") == hash {
@@ -126,7 +175,7 @@ func bundleHandler(w http.ResponseWriter, r *http.Request) {
 		Modules: []bundle.ModuleFile{
 			{
 				URL: "policy.rego",
-				Raw: []byte(data[key]),
+				Raw: []byte(policyData[key]),
 			},
 		},
 	}
@@ -135,43 +184,103 @@ func bundleHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("etag", hash)
 	err = bundle.NewWriter(w).Write(b)
 	if err != nil {
-		log.Printf("error writing bundle: %v\n", err)
+		fmt.Println(err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+}
+
+func configIndexHandler(w http.ResponseWriter, r *http.Request) {
+	bs, err := templates.ReadFile("templates/index.html")
+	if err != nil {
+		fmt.Println(err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	t := template.New("page")
+	ct, err := t.Parse(string(bs))
+	if err != nil {
+		fmt.Println(err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	err = ct.Execute(w, nil)
+	if err != nil {
+		fmt.Println(err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 }
 
 func configShowHandler(w http.ResponseWriter, r *http.Request) {
+	site := mux.Vars(r)["site"]
+	bundleID := mux.Vars(r)["bundle"]
+
+	key := fmt.Sprintf("%s/%s", site, bundleID)
+
 	if r.Method == http.MethodPost {
 		err := r.ParseForm()
 		if err != nil {
+			fmt.Println(err)
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
-		key := r.Form.Get("key")
 		value := r.Form.Get("value")
-
-		if key != "" {
-			data[key] = value
-		}
+		policyData[key] = value
 	}
 
 	bs, err := templates.ReadFile("templates/config.html")
 	if err != nil {
+		fmt.Println(err)
 		w.WriteHeader(http.StatusInternalServerError)
+		return
 	}
 
 	t := template.New("page")
 	ct, err := t.Parse(string(bs))
 	if err != nil {
+		fmt.Println(err)
 		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	current, _ := policyData[key]
+	notes := policyNotes[key]
+
+	var currentFormatted bytes.Buffer
+	err = quick.Highlight(&currentFormatted, current, "ruby", "html", "monokailight")
+	if err != nil {
+		fmt.Println(err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	var notesFormatted bytes.Buffer
+	err = quick.Highlight(&notesFormatted, notes, "ruby", "html", "monokailight")
+	if err != nil {
+		fmt.Println(err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
 	}
 
 	err = ct.Execute(w, struct {
-		Data map[string]string
-	}{Data: data})
+		Key         string
+		Current     string
+		Notes       string
+		CurrentHTML template.HTML
+		NotesHTML   template.HTML
+	}{
+		Key:         key,
+		Current:     current,
+		Notes:       notes,
+		CurrentHTML: template.HTML(currentFormatted.String()),
+		NotesHTML:   template.HTML(notesFormatted.String()),
+	})
 	if err != nil {
+		fmt.Println(err)
 		w.WriteHeader(http.StatusInternalServerError)
+		return
 	}
 }

@@ -1,42 +1,36 @@
 <html lang="en">
 <head>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/meyer-reset/2.0/reset.min.css"
-          integrity="sha512-NmLkDIU1C/C88wi324HBc+S2kLhi08PN5GDeUVVVC/BVt/9Izdsc9SVeVfA1UZbY3sHUlDSyRXhCzHfr6hmPPw=="
-          crossorigin="anonymous" referrerpolicy="no-referrer"/>
     <link rel="stylesheet" href="https://unpkg.com/tachyons@4.12.0/css/tachyons.min.css"/>
 </head>
-<body>
-<table class="w-100" style="border-collapse: collapse;">
-    <tr class="ba">
-        <th class="ba">Key</th>
-        <th class="ba">Value</th>
-    </tr>
-    {{ range $key, $value := .Data }}
-    <tr>
-        <form method="POST" action="/config">
-            <td class="ba">
-                <input type="text" name="key" value="{{ $key }}">
-            </td>
-            <td class="ba">
-                <textarea rows="10" cols="60" name="value" class="code w-100">{{ $value }}</textarea>
-                <br>
-                <input type="submit" value="Submit">
-            </td>
+<body class="pa5">
+
+<a href="/config">Back</a>
+
+<h1>{{ .Key }}</h1>
+
+<hr>
+
+{{ .CurrentHTML }}
+
+<hr>
+
+<details class="pt3">
+    <summary> Show Notes </summary>
+    <div>
+        {{ .NotesHTML }}
+    </div>
+</details>
+
+<details class="pt3">
+    <summary> Edit </summary>
+    <div>
+        <form method="POST" action="/config/{{ .Key }}">
+            <textarea name="value" rows="25" class="w-100">{{ .Current }}</textarea>
+            <input type="submit" value="Update">
         </form>
-    </tr>
-    {{ end }}
-</table>
+    </div>
+</details>
 
-
-<form class="db mt5" method="POST" action="/config">
-    Key: <input type="text" name="key">
-    <br>
-    Value:
-    <br>
-    <textarea rows="10" cols="60" name="value" class="code"></textarea>
-    <br>
-    <input type="submit" value="Submit">
-</form>
 </body>
 
 </html>

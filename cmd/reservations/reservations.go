@@ -14,6 +14,7 @@ import (
 	"html/template"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/charlieegan3/talk-opa-spiffe/internal/pkg/sources"
 )
@@ -180,10 +181,7 @@ func reservationsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var opaResponse struct {
-		Deny   bool   `json:"deny"`
-		Reason string `json:"reason"`
-	}
+	var opaResponse []string
 
 	err = json.Unmarshal(respBody, &opaResponse)
 	if err != nil {
@@ -192,7 +190,7 @@ func reservationsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if opaResponse.Deny {
+	if len(opaResponse) > 0 {
 		bs, err := templates.ReadFile("templates/reservations.error.html")
 		if err != nil {
 			fmt.Println(err)
@@ -208,7 +206,7 @@ func reservationsHandler(w http.ResponseWriter, r *http.Request) {
 		err = ct.Execute(w, struct {
 			Message string
 		}{
-			Message: opaResponse.Reason,
+			Message: strings.Join(opaResponse, ", "),
 		})
 		if err != nil {
 			fmt.Println(err)

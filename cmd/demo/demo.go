@@ -8,26 +8,51 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 
-	"github.com/charlieegan3/talk-opa-spiffe/internal/pkg/sources"
+	"github.com/gorilla/mux"
 	"github.com/open-policy-agent/opa/bundle"
 	"github.com/spiffe/go-spiffe/v2/bundle/x509bundle"
 	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/spiffe/go-spiffe/v2/spiffetls/tlsconfig"
 	"github.com/spiffe/go-spiffe/v2/svid/x509svid"
+
+	"github.com/charlieegan3/talk-opa-spiffe/internal/pkg/sources"
 )
 
 //go:embed templates/*
 var templates embed.FS
 
 var data = map[string]string{
-	"hq.authz": `
+	"station1.system.authz": `
 package system.authz
 
 default allow := {
     "allowed": false,
-    "reason": "unauthorized resource access"
+    "reason": "this OPA only accepts SPIFFE clients"
 }
+
+# allow := { "allowed": true } {
+#     spiffeID := input.client_certificates[0].URIs[0]
+#     spiffeID.Scheme == "spiffe"
+# }
+`,
+	"station1.reservations.list": `
+package reservations.list
+
+default deny := {
+    "deny": false,
+}
+
+# deny := { "deny": true, "reason": reason } {
+# 	not input.driver
+# 	reason := "driver must be set"
+# }
+# 
+# deny := { "deny": true, "reason": reason } {
+# 	input.driver == ""
+# 	reason := "driver must be not be an empty"
+# }
 `,
 }
 
@@ -54,12 +79,12 @@ func main() {
 
 	tlsConfig := tlsconfig.MTLSServerConfig(source, b, tlsconfig.AuthorizeMemberOf(td))
 
-	sm := http.NewServeMux()
-	sm.Handle("/config", http.HandlerFunc(configShowHandler))
-	sm.Handle("/bundles/hq/authz.tar.gz", http.HandlerFunc(authnHandler))
+	r := mux.NewRouter()
+	r.Handle("/config", http.HandlerFunc(configShowHandler))
+	r.Handle("/bundles/{site}/{bundle}/bundle.tar.gz", http.HandlerFunc(bundleHandler))
 
 	server := &http.Server{
-		Handler:   sm,
+		Handler:   r,
 		Addr:      ":8080",
 		TLSConfig: tlsConfig,
 	}
@@ -69,11 +94,21 @@ func main() {
 	server.ListenAndServe()
 }
 
-func authnHandler(w http.ResponseWriter, r *http.Request) {
+func bundleHandler(w http.ResponseWriter, r *http.Request) {
 	var err error
 
+	site := mux.Vars(r)["site"]
+	bundleID := mux.Vars(r)["bundle"]
+
+	if site == "" || bundleID == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	key := fmt.Sprintf("%s.%s", site, bundleID)
+
 	h := md5.New()
-	io.WriteString(h, data["hq.authz"])
+	io.WriteString(h, data[key])
 	hash := fmt.Sprintf("%x", h.Sum(nil))
 
 	if r.Header.Get("If-None-Match") == hash {
@@ -83,15 +118,15 @@ func authnHandler(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Println(r.URL.Path, "new bundle", hash)
 
-	roots := []string{"system/authz"}
+	roots := []string{strings.Replace(bundleID, ".", "/", -1)}
 	b := bundle.Bundle{
 		Manifest: bundle.Manifest{
 			Roots: &roots,
 		},
 		Modules: []bundle.ModuleFile{
 			{
-				URL: "system/authz.rego",
-				Raw: []byte(data["hq.authz"]),
+				URL: "policy.rego",
+				Raw: []byte(data[key]),
 			},
 		},
 	}

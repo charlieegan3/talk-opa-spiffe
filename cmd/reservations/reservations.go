@@ -5,6 +5,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"github.com/charlieegan3/talk-opa-spiffe/internal/pkg/sources"
 	"github.com/charlieegan3/talk-opa-spiffe/internal/types"
 	"github.com/gorilla/mux"
 	"github.com/spiffe/go-spiffe/v2/bundle/x509bundle"
@@ -14,9 +15,6 @@ import (
 	"html/template"
 	"io"
 	"net/http"
-	"strings"
-
-	"github.com/charlieegan3/talk-opa-spiffe/internal/pkg/sources"
 )
 
 //go:embed templates/*
@@ -49,14 +47,15 @@ func main() {
 	r.HandleFunc("/", indexHandler)
 	r.HandleFunc("/reservations", reservationsHandler)
 
+	addr := "localhost:8081"
 	server := &http.Server{
 		Handler:   r,
-		Addr:      ":8081",
+		Addr:      addr,
 		TLSConfig: tlsConfig,
 	}
 
+	fmt.Println("Listening on", addr)
 	// TODO TLS
-	//server.ListenAndServeTLS("", "")
 	server.ListenAndServe()
 }
 
@@ -143,11 +142,6 @@ func reservationsHandler(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	if err != nil {
-		fmt.Println(err)
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -157,27 +151,8 @@ func reservationsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		bs, err := templates.ReadFile("templates/reservations.error.html")
-		if err != nil {
-			fmt.Println(err)
-			w.WriteHeader(http.StatusInternalServerError)
-		}
-
-		t := template.New("page")
-		ct, err := t.Parse(string(bs))
-		if err != nil {
-			fmt.Println(err)
-			w.WriteHeader(http.StatusInternalServerError)
-		}
-		err = ct.Execute(w, struct {
-			Message string
-		}{
-			Message: string(respBody),
-		})
-		if err != nil {
-			fmt.Println(err)
-			w.WriteHeader(http.StatusInternalServerError)
-		}
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write(respBody)
 		return
 	}
 
@@ -191,36 +166,54 @@ func reservationsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(opaResponse) > 0 {
-		bs, err := templates.ReadFile("templates/reservations.error.html")
-		if err != nil {
-			fmt.Println(err)
-			w.WriteHeader(http.StatusInternalServerError)
-		}
-
-		t := template.New("page")
-		ct, err := t.Parse(string(bs))
-		if err != nil {
-			fmt.Println(err)
-			w.WriteHeader(http.StatusInternalServerError)
-		}
-		err = ct.Execute(w, struct {
-			Message string
-		}{
-			Message: strings.Join(opaResponse, ", "),
-		})
-		if err != nil {
-			fmt.Println(err)
-			w.WriteHeader(http.StatusInternalServerError)
-		}
+		w.WriteHeader(http.StatusForbidden)
+		w.Write(respBody)
 		return
 	}
 
-	reservations := []types.Reservation{
-		{
-			ID:             "1",
-			TrainServiceID: "ts1",
-			Seat:           "A1",
+	serverID = spiffeid.RequireFromString("spiffe://example.com/clusters/hq/bookings")
+	tlsConfig = tlsconfig.MTLSClientConfig(source, bundle, tlsconfig.AuthorizeID(serverID))
+
+	client = &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: tlsConfig,
 		},
+	}
+
+	req, err = http.NewRequest("GET", fmt.Sprintf("https://localhost:8082/api/reservations/%s", train), nil)
+	if err != nil {
+		fmt.Println(err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	req.Header.Set("X-DRIVER-ID", driver)
+
+	resp, err = client.Do(req)
+	if err != nil {
+		fmt.Println(err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	respBody, err = io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Println(err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write(respBody)
+		return
+	}
+
+	var reservations []types.Reservation
+	err = json.Unmarshal(respBody, &reservations)
+	if err != nil {
+		fmt.Println(err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
 	}
 
 	bs, err := templates.ReadFile("templates/reservations.html")

@@ -30,7 +30,7 @@ package system.authz
 
 default allow := {
 	"allowed": false,
-	"reason": "this OPA only accepts authenticated clients"	
+	"reason": "Station OPA only accepts authenticated clients"	
 }
 `,
 	"station1/reservations.list": `
@@ -40,6 +40,24 @@ deny[reason] {
 	false
 	reason := "TODO"
 }
+`,
+	"hq/system.authz": `
+package system.authz
+
+default allow := {
+	"allowed": false,
+	"reason": "HQ OPA only accepts authenticated clients"	
+}
+`,
+	"hq/reservations.list": `
+package reservations.list
+
+deny[reason] {
+	false
+	reason := "TODO"
+}
+
+option["TODO"] := true
 `,
 }
 
@@ -53,7 +71,7 @@ spiffeIDString(spiffeID) = result {
 
 default allow := {
 	"allowed": false,
-	"reason": "this OPA only accepts authenticated clients"
+	"reason": "Station OPA only accepts authenticated clients"
 }
 
 allow := { "allowed": true } {
@@ -64,17 +82,19 @@ allow := { "allowed": true } {
 
 package system.authz
 
+import future.keywords.in
+
 spiffeIDString(spiffeID) = result {
 	result := sprintf("spiffe://%s%s", [spiffeID.Host, spiffeID.Path])
 }
 
 default allow := {
 	"allowed": false,
-	"reason": "this OPA only accepts authenticated clients"
+	"reason": "Station OPA only accepts authenticated clients"
 }
 
 acl := {
-	"spiffe://example.com/clusters/station1/reservations/foo": [
+	"spiffe://example.com/clusters/station1/reservations": [
 		["v0", "data", "reservations", "list", "deny"],
 	],
 }
@@ -82,12 +102,18 @@ acl := {
 allow := { "allowed": false, "reason": reason } {
 	spiffeID := spiffeIDString(input.client_certificates[0].URIs[0])
 	not acl[spiffeID]
+	reason := sprintf("client %s is not authorized to access this OPA", [spiffeID])
+}
+
+allow := { "allowed": false, "reason": reason } {
+	spiffeID := spiffeIDString(input.client_certificates[0].URIs[0])
+	not input.path in acl[spiffeID]
 	reason := sprintf("client %s is not authorized to access this path %s", [spiffeID, input.path])
 }
 
 allow := { "allowed": true } {
 	spiffeID := spiffeIDString(input.client_certificates[0].URIs[0])
-	acl[spiffeID]
+	input.path in acl[spiffeID]
 }
 `,
 	"station1/reservations.list": `
@@ -100,6 +126,61 @@ deny[reason] {
 deny[reason] {
 	input.train == ""
 	reason := "train must be not be a empty"
+}
+`,
+	"hq/reservations.list": `
+package reservations.list
+
+deny[reason] {
+	input.driver == ""
+	reason := "driver must be not be a empty"
+}
+
+deny[reason] {
+	input.train_service == ""
+	reason := "train must be not be a empty"
+}
+
+deny[reason] {
+	input.train_services[input.train_service].DriverID != input.driver
+	reason := "Driver does not match requested train service"
+}
+
+###########################################################
+
+option["show_email"] := false {
+  input.caller == "spiffe://example.com/clusters/station1/reservations"
+}
+`,
+	"hq/system.authz": `
+package system.authz
+
+import future.keywords.in
+
+spiffeIDString(spiffeID) = result {
+	result := sprintf("spiffe://%s%s", [spiffeID.Host, spiffeID.Path])
+}
+
+default allow := {
+	"allowed": false,
+	"reason": "HQ OPA only accepts authenticated clients"
+}
+
+acl := {
+	"spiffe://example.com/clusters/hq/bookings": [
+		["v0", "data", "reservations", "list", "deny"],
+	],
+}
+
+allow := { "allowed": false, "reason": reason } {
+	spiffeID := spiffeIDString(input.client_certificates[0].URIs[0])
+	not input.path in acl[spiffeID]
+	reason := sprintf("client %s is not authorized to access this path %s", [spiffeID, input.path])
+}
+
+allow := { "allowed": true } {
+	spiffeID := spiffeIDString(input.client_certificates[0].URIs[0])
+	input.path in acl[spiffeID]
 }
 `,
 }
@@ -132,12 +213,14 @@ func main() {
 	r.Handle("/config/{site}/{bundle}", http.HandlerFunc(configShowHandler))
 	r.Handle("/bundles/{site}/{bundle}/bundle.tar.gz", http.HandlerFunc(bundleHandler))
 
+	addr := "localhost:8080"
 	server := &http.Server{
 		Handler:   r,
-		Addr:      ":8080",
+		Addr:      addr,
 		TLSConfig: tlsConfig,
 	}
 
+	fmt.Println("Listening on", addr)
 	// TODO TLS
 	//server.ListenAndServeTLS("", "")
 	server.ListenAndServe()

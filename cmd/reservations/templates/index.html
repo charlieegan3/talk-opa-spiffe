@@ -1,6 +1,7 @@
 <html lang="en">
 <head>
     <link rel="stylesheet" href="https://unpkg.com/tachyons@4.12.0/css/tachyons.min.css"/>
+    <title>Reservations Service</title>
 </head>
 <body>
 
@@ -9,10 +10,10 @@
     <p>Use this form to get reservations for a given train service</p>
 
     <form method="GET" action="/reservations">
-        <label for="train">Train Service</label>
+        <label for="train">Train Service ID</label>
         <input type="text" name="train" id="train">
         <br>
-        <label for="driver">Driver</label>
+        <label for="driver">Driver ID</label>
         <input type="text" name="driver" id="driver">
         <br>
         <input type="submit" value="Fetch">

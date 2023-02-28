@@ -1,22 +1,37 @@
 <html lang="en">
 <head>
     <link rel="stylesheet" href="https://unpkg.com/tachyons@4.12.0/css/tachyons.min.css"/>
+    <title>Reservations Service</title>
 </head>
 <body>
 
 <div class="pa5">
 
-    <p>Reservations for train {{ if eq .Train "" }}Train Empty!{{ else }}{{ .Train }}{{ end }} (driver {{ if eq .Driver "" }}Driver Empty!{{ else }}{{ .Driver }}{{ end }})</p>
+    <h1>Reservations for train <code>{{ if eq .Train "" }}Train Empty!{{ else }}{{ .Train }}{{ end }}</code> (driver
+        <code>{{ if eq .Driver "" }}Driver Empty!{{ else }}{{ .Driver }}{{ end }}</code>)</h1>
 
-    {{ range $r := .Reservations }}
-    <p>
-        Reservation ID: {{ $r.ID }}
-        Seat: {{ $r.Seat }}
-    </p>
-    {{ end }}
+    <table class="ba" style="border-collapse: collapse">
+        <tr class="ba">
+            <th class="ba">Reservation ID</th>
+            <th class="ba">Train Service</th>
+            <th class="ba">Driver</th>
+            <th class="ba">Seat</th>
+            <th class="ba">Booking</th>
+            <th class="ba">Email</th>
+        </tr>
+        {{ range $r := .Reservations }}
+        <tr>
+            <td class="ba">{{ $r.ID }}</td>
+            <td class="ba">{{ $r.TrainServiceID }}</td>
+            <td class="ba">{{ if $r.TrainService }}{{ $r.TrainService.DriverID }}{{ else }}Unknown{{ end }}</td>
+            <td class="ba">{{ $r.Seat }}</td>
+            <td class="ba">{{ if $r.Booking }}{{ $r.Booking.ID }}{{ else }}No Booking{{ end }}</td>
+            <td class="ba">{{ if $r.Booking }}{{ $r.Booking.Email }}{{ else }}No Booking{{ end }}</td>
+        </tr>
+        {{ end }}
+    </table>
 
 </div>
-
 
 </body>
 

@@ -18,8 +18,6 @@ type Train struct {
 type Booking struct {
 	ID string
 
-	ReservationID string
-
 	Email string
 }
 
@@ -27,6 +25,11 @@ type Reservation struct {
 	ID string
 
 	TrainServiceID string
+	BookingID      string
 
 	Seat string
+
+	// can be included in responses where needed
+	Booking      Booking
+	TrainService TrainService
 }

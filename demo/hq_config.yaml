@@ -1,0 +1,17 @@
+services:
+  demo:
+    url: http://localhost:8080
+
+bundles:
+  authz:
+    service: demo
+    resource: /bundles/hq/system.authz/bundle.tar.gz
+    polling:
+      min_delay_seconds: 1
+      max_delay_seconds: 1
+  reservations:
+    service: demo
+    resource: /bundles/hq/reservations.list/bundle.tar.gz
+    polling:
+      min_delay_seconds: 1
+      max_delay_seconds: 1

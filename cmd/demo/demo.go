@@ -5,11 +5,12 @@ import (
 	"crypto/md5"
 	"embed"
 	"fmt"
-	"github.com/alecthomas/chroma/quick"
 	"html/template"
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/alecthomas/chroma/quick"
 
 	"github.com/gorilla/mux"
 	"github.com/open-policy-agent/opa/bundle"
@@ -65,55 +66,18 @@ var policyNotes = map[string]string{
 	"station1/system.authz": `
 package system.authz
 
-spiffeIDString(spiffeID) = result {
-	result := sprintf("spiffe://%s%s", [spiffeID.Host, spiffeID.Path])
-}
 
 default allow := {
 	"allowed": false,
 	"reason": "Station OPA only accepts authenticated clients"
+}
+
+spiffeIDString(spiffeID) = result {
+	result := sprintf("spiffe://%s%s", [spiffeID.Host, spiffeID.Path])
 }
 
 allow := { "allowed": true } {
 	spiffeIDString(input.client_certificates[0].URIs[0])
-}
-
-###########################################################
-
-package system.authz
-
-import future.keywords.in
-
-spiffeIDString(spiffeID) = result {
-	result := sprintf("spiffe://%s%s", [spiffeID.Host, spiffeID.Path])
-}
-
-default allow := {
-	"allowed": false,
-	"reason": "Station OPA only accepts authenticated clients"
-}
-
-acl := {
-	"spiffe://example.com/clusters/station1/reservations": [
-		["v0", "data", "reservations", "list", "deny"],
-	],
-}
-
-allow := { "allowed": false, "reason": reason } {
-	spiffeID := spiffeIDString(input.client_certificates[0].URIs[0])
-	not acl[spiffeID]
-	reason := sprintf("client %s is not authorized to access this OPA", [spiffeID])
-}
-
-allow := { "allowed": false, "reason": reason } {
-	spiffeID := spiffeIDString(input.client_certificates[0].URIs[0])
-	not input.path in acl[spiffeID]
-	reason := sprintf("client %s is not authorized to access this path %s", [spiffeID, input.path])
-}
-
-allow := { "allowed": true } {
-	spiffeID := spiffeIDString(input.client_certificates[0].URIs[0])
-	input.path in acl[spiffeID]
 }
 `,
 	"station1/reservations.list": `
@@ -168,7 +132,7 @@ default allow := {
 
 acl := {
 	"spiffe://example.com/clusters/hq/bookings": [
-		["v0", "data", "reservations", "list", "deny"],
+		["v0", "data", "reservations", "list", "allow"],
 	],
 }
 
